@@ -55,18 +55,16 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 
-var jwtKey = []byte("your_secret_key_here") // Replace with your secret key
+var jwtKey = []byte("your_secret_key_here") // Replace 
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
-    var creds UserRegistrationRequest // Assuming the same struct as registration
+    var creds UserRegistrationRequest 
     err := json.NewDecoder(r.Body).Decode(&creds)
     if err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
 
-    // Validate credentials (simplified example)
-    // This should be replaced with actual database lookup and validation
     var storedPassword string
     var userID int
     err = db.QueryRow("SELECT id, password FROM Account WHERE username = ?", creds.Username).Scan(&userID, &storedPassword)
@@ -109,11 +107,11 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 // handlers.go
 func getContactsHandler(w http.ResponseWriter, r *http.Request) {
-    // Extract the user ID from the URL parameter
+
     vars := mux.Vars(r)
     userID := vars["user_id"]
 
-    // Query the database for contacts belonging to the user
+
     rows, err := db.Query("SELECT id, user_id, contact_id, contact_name FROM ContactList WHERE user_id = ?", userID)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -131,7 +129,7 @@ func getContactsHandler(w http.ResponseWriter, r *http.Request) {
         contacts = append(contacts, contact)
     }
 
-    // Respond with the list of contacts
+
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(contacts)
 }
@@ -176,7 +174,7 @@ func getUserHandler(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     userID := vars["user_id"]
 
-    var user User // Assuming you have a User struct defined somewhere
+    var user User
     err := db.QueryRow("SELECT id, username, firstname, lastname, phone, bio FROM Account WHERE id = ?", userID).Scan(&user.ID, &user.Username, &user.Firstname, &user.Lastname, &user.Phone, &user.Bio)
     if err != nil {
         if err == sql.ErrNoRows {
@@ -195,14 +193,14 @@ func updateUserHandler(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     userID := vars["user_id"]
 
-    // Assuming a UserUpdateRequest struct that includes fields that can be updated
+
     var updateReq UserUpdateRequest
     if err := json.NewDecoder(r.Body).Decode(&updateReq); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
 
-    // Perform the update operation; you might use prepared statements or ORM methods here
+   
     _, err := db.Exec("UPDATE Account SET firstname = ?, lastname = ?, bio = ? WHERE id = ?", updateReq.Firstname, updateReq.Lastname, updateReq.Bio, userID)
     if err != nil {
         http.Error(w, "Server error", http.StatusInternalServerError)
@@ -239,7 +237,7 @@ func searchUserHandler(w http.ResponseWriter, r *http.Request) {
     }
     defer rows.Close()
 
-    var users []User // Assuming a User struct
+    var users []User 
     for rows.Next() {
         var user User
         if err := rows.Scan(&user.ID, &user.Username, &user.Firstname, &user.Lastname); err != nil {
