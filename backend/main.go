@@ -28,28 +28,32 @@ func main() {
     log.Println("Database initialized.")
     router := mux.NewRouter()
 
-    // User endpoints
+    // Public endpoints
     router.HandleFunc("/api/register", registerHandler).Methods("POST")
     router.HandleFunc("/api/login", loginHandler).Methods("POST")
-    router.HandleFunc("/api/users/{user_id}", getUserHandler).Methods("GET")
-    router.HandleFunc("/api/users/{user_id}", updateUserHandler).Methods("PATCH")
-    router.HandleFunc("/api/users/{user_id}", deleteUserHandler).Methods("DELETE")
-    router.HandleFunc("/api/users", searchUserHandler).Methods("GET")
-    router.HandleFunc("/api/users/{user_id}/contacts", getContactsHandler).Methods("GET")
-    router.HandleFunc("/api/users/{user_id}/contacts", addContactHandler).Methods("POST")
-    router.HandleFunc("/api/users/{user_id}/contacts/{contact_id}", removeContactHandler).Methods("DELETE")
-    router.HandleFunc("/api/chats", createChatHandler).Methods("POST")
-    router.HandleFunc("/api/chats", listChatsHandler).Methods("GET")
-    router.HandleFunc("/api/chats", getChatHandler).Methods("GET")
-    router.HandleFunc("/ws", wsHandler)
 
+    // Subrouter for protected routes
+    protected := router.PathPrefix("/api").Subrouter()
+    protected.Use(jwtMiddleware) // Apply jwtMiddleware to all routes handled by "protected"
+    
+    // Apply the middleware to routes that require authentication
+    protected.HandleFunc("/users/{user_id}", getUserHandler).Methods("GET")
+    protected.HandleFunc("/users/{user_id}", updateUserHandler).Methods("PATCH")
+    protected.HandleFunc("/users/{user_id}", deleteUserHandler).Methods("DELETE")
+    protected.HandleFunc("/users", searchUserHandler).Methods("GET")
+    protected.HandleFunc("/users/{user_id}/contacts", getContactsHandler).Methods("GET")
+    protected.HandleFunc("/users/{user_id}/contacts", addContactHandler).Methods("POST")
+    protected.HandleFunc("/users/{user_id}/contacts/{contact_id}", removeContactHandler).Methods("DELETE")
+    protected.HandleFunc("/chats", createChatHandler).Methods("POST")
+    protected.HandleFunc("/chats", listChatsHandler).Methods("GET")
+    protected.HandleFunc("/chats/{chat_id}", getChatHandler).Methods("GET") // Assuming you want to protect this route
+
+    // WebSocket route, assuming it needs authentication
+    router.Handle("/ws", jwtMiddleware(http.HandlerFunc(wsHandler)))
 
     // Start the server
-    http.ListenAndServe(":8080", router)
-    log.Fatal(http.ListenAndServe(":8080", router))
-
     log.Println("Starting server on :8080")
     if err := http.ListenAndServe(":8080", router); err != nil {
-        log.Fatal("ListenAndServe: ", err)
+        log.Fatal("ListenAndServe error: ", err)
     }
 }
