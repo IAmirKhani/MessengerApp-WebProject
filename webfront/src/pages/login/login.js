@@ -18,7 +18,7 @@ function Login() {
             return
         }
         await onLogin(username, password)
-        navigate('/makePoll')
+        navigate('/profile')
     }
 
 

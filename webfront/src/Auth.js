@@ -1,4 +1,5 @@
 import { useEffect, useState, createContext, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const authContext = createContext(null)
 
@@ -50,7 +51,7 @@ const Auth = async (email, password) =>
 }
 
 const AuthProvider = ({ children }) => {
-
+    const nav = useNavigate()
     const [token, setToken] = useLocalStorage("token", null);
     const handleLogin = async (email, password) => {
         const newToken = await Auth(email, password);
@@ -62,6 +63,7 @@ const AuthProvider = ({ children }) => {
         //TODO: change api
         //fetch("http://localhost:8000/api/auth/logout", {method:"GET", credentials: 'include'})
         setToken(null);
+        nav("/")
     };
 
     const value = {
