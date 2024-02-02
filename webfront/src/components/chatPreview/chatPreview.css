@@ -1,4 +1,4 @@
-.chatContainer {
+.chatPreviewContainer {
     display: grid;
     grid-template-columns: 35px 2fr 2fr;
     gap: 5px;

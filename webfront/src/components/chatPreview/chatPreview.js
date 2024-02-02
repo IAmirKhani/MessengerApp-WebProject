@@ -4,7 +4,7 @@ import "./chatPreview.css"
 
 function ChatPreview({ img = null, name, time, lastMsg, onClick, id, isActive }) {
     return (
-        <div className={isActive == "true" ? "chatContainer active" : "chatContainer"} onClick={onClick}>
+        <div className={isActive == "true" ? "chatPreviewContainer active" : "chatPreviewContainer"} onClick={() => onClick(id)}>
             <div className="pfp">
                 <img src={pfp} width="25" height="25" />
             </div>

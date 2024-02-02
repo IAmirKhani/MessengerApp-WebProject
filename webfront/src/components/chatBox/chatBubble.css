@@ -1,0 +1,16 @@
+.messageContainer {
+    color: black;
+    margin: 1em;
+
+}
+
+.user {
+    background-color: aqua;
+    align-self: flex-end;
+    margin-left: auto;
+}
+
+.other {
+    background-color: aquamarine;
+    align-self: flex-start;
+}
