@@ -8,20 +8,12 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/bcrypt"
+    "strconv"
+    "strings"
 	"log"
 	"net/http"
 	"time"
 )
-
-type UserRegistrationRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type Claims struct {
-	UserID int `json:"userId"`
-	jwt.StandardClaims
-}
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -30,24 +22,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-type ChatRequest struct {
-	Participants []int `json:"participants"` // IDs of the users participating in the chat
-}
-
 type contextKey string
-
-type ChatSummary struct {
-	ID           int    `json:"id"`
-	Participants string `json:"participants"` // Assumes participants are a comma-separated string
-}
-
-type Message struct {
-    ID        int       `json:"id"`
-    Sender    int       `json:"sender"`
-    Content   string    `json:"content"`
-    CreatedAt time.Time `json:"created_at"`
-}
-
 
 var userIDKey = contextKey("userID")
 
@@ -86,13 +61,40 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		log.Printf("Received: %s\n", message)
 
-		// Echo the received message back to the client
 		if err := conn.WriteMessage(messageType, message); err != nil {
 			log.Println(err)
 			break
 		}
 	}
 }
+
+func jwtMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        authHeader := r.Header.Get("Authorization")
+        if authHeader == "" {
+            http.Error(w, "Authorization header is required", http.StatusUnauthorized)
+            return
+        }
+        tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+        claims := &Claims{}
+        token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+            if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+                return nil, http.ErrAbortHandler
+            }
+            return jwtKey, nil
+        })
+
+        if err != nil || !token.Valid {
+            http.Error(w, "Invalid token", http.StatusUnauthorized)
+            return
+        }
+
+        ctx := context.WithValue(r.Context(), userIDKey, claims.UserID)
+        next.ServeHTTP(w, r.WithContext(ctx))
+    })
+}
+
 
 func registerHandler(w http.ResponseWriter, r *http.Request) {
 	var request UserRegistrationRequest
@@ -131,51 +133,54 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 var jwtKey = []byte("your_secret_key_here") // Replace
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
-	var creds UserRegistrationRequest
-	err := json.NewDecoder(r.Body).Decode(&creds)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+    var creds UserRegistrationRequest
+    err := json.NewDecoder(r.Body).Decode(&creds)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
 
-	var storedPassword string
-	var userID int
-	err = db.QueryRow("SELECT id, password FROM Account WHERE username = ?", creds.Username).Scan(&userID, &storedPassword)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			http.Error(w, "Invalid username or password", http.StatusUnauthorized)
-		} else {
-			http.Error(w, "Server error", http.StatusInternalServerError)
-		}
-		return
-	}
+    var storedPassword string
+    var userID int
+    err = db.QueryRow("SELECT id, password FROM Account WHERE username = ?", creds.Username).Scan(&userID, &storedPassword)
+    if err != nil {
+        if err == sql.ErrNoRows {
+            http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+        } else {
+            http.Error(w, "Server error", http.StatusInternalServerError)
+        }
+        return
+    }
 
-	// Compare the stored hashed password with the provided password
-	if err := bcrypt.CompareHashAndPassword([]byte(storedPassword), []byte(creds.Password)); err != nil {
-		http.Error(w, "Invalid username or password", http.StatusUnauthorized)
-		return
-	}
+    if err := bcrypt.CompareHashAndPassword([]byte(storedPassword), []byte(creds.Password)); err != nil {
+        http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+        return
+    }
 
-	// Generate JWT Token
-	expirationTime := time.Now().Add(30 * time.Minute)
-	claims := &Claims{
-		UserID: userID,
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: expirationTime.Unix(),
-		},
-	}
+    expirationTime := time.Now().Add(30 * time.Minute)
+    claims := &Claims{
+        UserID: userID,
+        StandardClaims: jwt.StandardClaims{
+            ExpiresAt: expirationTime.Unix(),
+        },
+    }
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(jwtKey)
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    tokenString, err := token.SignedString(jwtKey)
 
-	if err != nil {
-		http.Error(w, "Could not create token", http.StatusInternalServerError)
-		return
-	}
+    if err != nil {
+        http.Error(w, "Could not create token", http.StatusInternalServerError)
+        return
+    }
 
-	// Return the token
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
+    // Modify the response to include the user ID along with the token
+    response := map[string]interface{}{
+        "token":  tokenString,
+        "userID": userID, // Include the user ID in the response
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(response)
 }
 
 // handlers.go
@@ -241,21 +246,33 @@ func removeContactHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func getUserHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	userID := vars["user_id"]
+    vars := mux.Vars(r)
+    userIDStr := vars["user_id"]
+    userID, err := strconv.Atoi(userIDStr) // Convert userID to int
+    if err != nil {
+        log.Printf("Error converting userID to int: %v", err)
+        http.Error(w, "Invalid user ID format", http.StatusBadRequest)
+        return
+    }
 
-	var user User
-	err := db.QueryRow("SELECT id, username, firstname, lastname, phone, bio FROM Account WHERE id = ?", userID).Scan(&user.ID, &user.Username, &user.Firstname, &user.Lastname, &user.Phone, &user.Bio)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			http.NotFound(w, r)
-			return
-		}
-		http.Error(w, "Server error", http.StatusInternalServerError)
-		return
-	}
+    var user User
+    err = db.QueryRow("SELECT id, username, firstname, lastname, phone, bio FROM Account WHERE id = ?", userID).Scan(&user.ID, &user.Username, &user.Firstname, &user.Lastname, &user.Phone, &user.Bio)
+    if err != nil {
+        if err == sql.ErrNoRows {
+            log.Printf("No user found with ID: %d", userID)
+            http.NotFound(w, r)
+            return
+        }
+        log.Printf("Error querying user from database: %v", err)
+        http.Error(w, "Server error", http.StatusInternalServerError)
+        return
+    }
 
-	json.NewEncoder(w).Encode(user)
+    w.Header().Set("Content-Type", "application/json")
+    if err := json.NewEncoder(w).Encode(user); err != nil {
+        log.Printf("Error encoding user to JSON: %v", err)
+        http.Error(w, "Error encoding response", http.StatusInternalServerError)
+    }
 }
 
 func updateUserHandler(w http.ResponseWriter, r *http.Request) {
@@ -323,15 +340,12 @@ func createChatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Begin a transaction
 	tx, err := db.Begin()
 	if err != nil {
 		http.Error(w, "Failed to start transaction: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Insert a new chat record into the Chat table
-	// Adjust this as per your Chat table schema, e.g., if you're storing a chat name or other metadata
 	res, err := tx.Exec("INSERT INTO Chat (created_at) VALUES (NOW())")
 	if err != nil {
 		tx.Rollback()
@@ -345,7 +359,6 @@ func createChatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Insert participants into the ChatUser table
 	for _, participantID := range chatRequest.Participants {
 		_, err := tx.Exec("INSERT INTO ChatUser (chat_id, user_id) VALUES (?, ?)", chatID, participantID)
 		if err != nil {
@@ -355,19 +368,16 @@ func createChatHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Commit the transaction
 	if err := tx.Commit(); err != nil {
 		http.Error(w, "Transaction commit failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Respond to client
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]int64{"chat_id": chatID})
 }
 
 func getUserIDFromContext(ctx context.Context) (int, bool) {
-	// The ctx.Value returns an interface{} and a boolean indicating if the key was found.
 	userID, ok := ctx.Value(userIDKey).(int)
 	return userID, ok
 }
@@ -416,8 +426,6 @@ func userIsPartOfChat(userID int, chatID string) bool {
     return err == nil && exists
 }
 
-// Ensure you've imported "strconv" at the top of your file.
-
 func getChatHandler(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     chatID := vars["chat_id"]
@@ -428,7 +436,6 @@ func getChatHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Verify the user is part of the chat
     if !userIsPartOfChat(userID, chatID) {
         http.Error(w, "Unauthorized", http.StatusUnauthorized)
         return
