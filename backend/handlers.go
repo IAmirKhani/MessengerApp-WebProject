@@ -79,7 +79,6 @@ func jwtMiddleware(next http.Handler) http.Handler {
 
         claims := &Claims{}
         token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-            // Ensure algorithm is HMAC and matches what you expect (e.g., "HS256")
             if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
                 return nil, http.ErrAbortHandler
             }
@@ -90,9 +89,6 @@ func jwtMiddleware(next http.Handler) http.Handler {
             http.Error(w, "Invalid token", http.StatusUnauthorized)
             return
         }
-
-        // Optionally log or handle the UserID for auditing or further checks
-        // log.Printf("Authenticated UserID: %d", claims.UserID)
 
         ctx := context.WithValue(r.Context(), userIDKey, claims.UserID)
         next.ServeHTTP(w, r.WithContext(ctx))
@@ -344,15 +340,12 @@ func createChatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Begin a transaction
 	tx, err := db.Begin()
 	if err != nil {
 		http.Error(w, "Failed to start transaction: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Insert a new chat record into the Chat table
-	// Adjust this as per your Chat table schema, e.g., if you're storing a chat name or other metadata
 	res, err := tx.Exec("INSERT INTO Chat (created_at) VALUES (NOW())")
 	if err != nil {
 		tx.Rollback()
@@ -366,7 +359,6 @@ func createChatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Insert participants into the ChatUser table
 	for _, participantID := range chatRequest.Participants {
 		_, err := tx.Exec("INSERT INTO ChatUser (chat_id, user_id) VALUES (?, ?)", chatID, participantID)
 		if err != nil {
@@ -376,19 +368,16 @@ func createChatHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Commit the transaction
 	if err := tx.Commit(); err != nil {
 		http.Error(w, "Transaction commit failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Respond to client
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]int64{"chat_id": chatID})
 }
 
 func getUserIDFromContext(ctx context.Context) (int, bool) {
-	// The ctx.Value returns an interface{} and a boolean indicating if the key was found.
 	userID, ok := ctx.Value(userIDKey).(int)
 	return userID, ok
 }
@@ -437,8 +426,6 @@ func userIsPartOfChat(userID int, chatID string) bool {
     return err == nil && exists
 }
 
-// Ensure you've imported "strconv" at the top of your file.
-
 func getChatHandler(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     chatID := vars["chat_id"]
@@ -449,7 +436,6 @@ func getChatHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Verify the user is part of the chat
     if !userIsPartOfChat(userID, chatID) {
         http.Error(w, "Unauthorized", http.StatusUnauthorized)
         return
